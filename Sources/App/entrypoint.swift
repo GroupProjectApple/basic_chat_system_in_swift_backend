@@ -6,26 +6,70 @@ import NIOPosix
 @main
 enum Entrypoint {
     static func main() async throws {
+        // Detect environment and bootstrap logging
         var env = try Environment.detect()
         try LoggingSystem.bootstrap(from: &env)
-        
+       
+        // Initialize the app
         let app = try await Application.make(env)
-
-        // This attempts to install NIO as the Swift Concurrency global executor.
-        // You can enable it if you'd like to reduce the amount of context switching between NIO and Swift Concurrency.
-        // Note: this has caused issues with some libraries that use `.wait()` and cleanly shutting down.
-        // If enabled, you should be careful about calling async functions before this point as it can cause assertion failures.
-        // let executorTakeoverSuccess = NIOSingletons.unsafeTryInstallSingletonPosixEventLoopGroupAsConcurrencyGlobalExecutor()
-        // app.logger.debug("Tried to install SwiftNIO's EventLoopGroup as Swift's global concurrency executor", metadata: ["success": .stringConvertible(executorTakeoverSuccess)])
-        
+       
+        // RabbitMQ connection string
+        let rabbitMQConnectionString = "amqps://tkmzwfdi:L8M8wKlnoUA37hyz1GRrlch8ufJY3mys@fuji.lmq.cloudamqp.com/tkmzwfdi"
+       
+        // Set up the event loop group with multiple threads
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+       
+        // Start RabbitMQ server and sender concurrently using async tasks
+        //async let rabbitMQServerTask = try startRabbitMQServer(eventLoopGroup: eventLoopGroup, connectionString: rabbitMQConnectionString)
+        Task{
+         do {
+            try await RabbitMQSenderServer.start(eventLoopGroup: eventLoopGroup, connectionString: rabbitMQConnectionString)
+        } catch {
+            print("Failed to start RabbitMQ sender server: \(error)")
+        }
+        }
+        Task{
+         do {
+            try await RabbitMQServer.start(eventLoopGroup: eventLoopGroup, connectionString: rabbitMQConnectionString)
+        } catch {
+            print("Failed to start RabbitMQ server: \(error)")
+        }
+        }
+       
         do {
+            // Run the Vapor app and configure it
             try await configure(app)
         } catch {
             app.logger.report(error: error)
             try? await app.asyncShutdown()
             throw error
         }
+       
+        // Wait for both RabbitMQ server and sender to finish
+        //try await rabbitMQServerTask
+        //try await rabbitMQSenderServerTask
+       
+        // Shutdown the app
         try await app.execute()
         try await app.asyncShutdown()
     }
+   
+    // Function to start RabbitMQ server
+    /*static func startRabbitMQServer(eventLoopGroup: EventLoopGroup, connectionString: String) async throws {
+        do {
+            try await RabbitMQServer.start(eventLoopGroup: eventLoopGroup, connectionString: connectionString)
+        } catch {
+            print("Failed to start RabbitMQ server: \(error)")
+        }
+    }*/
+   
+    // Function to start RabbitMQ sender server
+    /*static func startRabbitMQSenderServer(eventLoopGroup: EventLoopGroup, connectionString: String) async throws {
+        do {
+            try await RabbitMQSenderServer.start(eventLoopGroup: eventLoopGroup, connectionString: connectionString)
+        } catch {
+            print("Failed to start RabbitMQ sender server: \(error)")
+        }
+    }*/
 }
+
